@@ -5,17 +5,23 @@ import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.springframework.boot.EnvironmentPostProcessor;
 import org.springframework.boot.SpringApplication;
 import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.MapPropertySource;
 import org.springframework.core.env.Profiles;
+import org.springframework.core.env.PropertySource;
 
 /**
  * Permite pegar directamente MYSQL_PUBLIC_URL o MYSQL_URL de Railway
  * (formato mysql://user:pass@host:port/db) en Render sin convertir manualmente a JDBC.
+ * También resuelve referencias de plantilla Railway (${{VAR}}) si existen en el entorno.
  */
 public class RailwayMysqlUrlPostProcessor implements EnvironmentPostProcessor {
+
+    private static final Pattern RAILWAY_PLACEHOLDER = Pattern.compile("\\$\\{\\{\\s*([A-Za-z0-9_.-]+)\\s*}}");
 
     @Override
     public void postProcessEnvironment(ConfigurableEnvironment environment, SpringApplication application) {
@@ -23,22 +29,28 @@ public class RailwayMysqlUrlPostProcessor implements EnvironmentPostProcessor {
             return;
         }
 
-        String explicitJdbc = environment.getProperty("DB_URL");
+        String explicitJdbc = getRawProperty(environment, "DB_URL");
         if (explicitJdbc != null && explicitJdbc.startsWith("jdbc:")) {
             return;
         }
 
         String rawUrl = firstNonBlank(
-                environment.getProperty("MYSQL_PUBLIC_URL"),
-                environment.getProperty("MYSQL_URL"),
-                environment.getProperty("DATABASE_URL"));
+                getRawProperty(environment, "MYSQL_PUBLIC_URL"),
+                getRawProperty(environment, "MYSQL_URL"),
+                getRawProperty(environment, "MYSQL_PRIVATE_URL"),
+                getRawProperty(environment, "DATABASE_URL"));
 
         if (rawUrl == null || !rawUrl.startsWith("mysql://")) {
             return;
         }
 
+        String resolvedUrl = resolveRailwayPlaceholders(rawUrl, environment);
+        if (resolvedUrl == null) {
+            return;
+        }
+
         try {
-            URI uri = URI.create(rawUrl.trim());
+            URI uri = URI.create(resolvedUrl.trim());
             String host = uri.getHost();
             int port = uri.getPort() > 0 ? uri.getPort() : 3306;
             String path = uri.getPath();
@@ -75,6 +87,34 @@ public class RailwayMysqlUrlPostProcessor implements EnvironmentPostProcessor {
             }
         }
         return null;
+    }
+
+    private static String getRawProperty(ConfigurableEnvironment environment, String key) {
+        for (PropertySource<?> source : environment.getPropertySources()) {
+            Object value = source.getProperty(key);
+            if (value instanceof String str && !str.isBlank()) {
+                return str.trim();
+            }
+        }
+        return null;
+    }
+
+    private static String resolveRailwayPlaceholders(String rawUrl, ConfigurableEnvironment environment) {
+        if (!rawUrl.contains("${{")) {
+            return rawUrl;
+        }
+        Matcher matcher = RAILWAY_PLACEHOLDER.matcher(rawUrl);
+        StringBuilder sb = new StringBuilder();
+        while (matcher.find()) {
+            String key = matcher.group(1);
+            String value = getRawProperty(environment, key);
+            if (value == null || value.isBlank()) {
+                return null;
+            }
+            matcher.appendReplacement(sb, Matcher.quoteReplacement(value));
+        }
+        matcher.appendTail(sb);
+        return sb.toString();
     }
 
     private static String decode(String value) {
