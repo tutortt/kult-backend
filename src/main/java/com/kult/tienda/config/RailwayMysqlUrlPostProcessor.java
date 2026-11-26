@@ -9,6 +9,7 @@ import org.springframework.boot.EnvironmentPostProcessor;
 import org.springframework.boot.SpringApplication;
 import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.MapPropertySource;
+import org.springframework.core.env.Profiles;
 
 /**
  * Permite pegar directamente MYSQL_PUBLIC_URL o MYSQL_URL de Railway
@@ -18,6 +19,10 @@ public class RailwayMysqlUrlPostProcessor implements EnvironmentPostProcessor {
 
     @Override
     public void postProcessEnvironment(ConfigurableEnvironment environment, SpringApplication application) {
+        if (environment.acceptsProfiles(Profiles.of("test"))) {
+            return;
+        }
+
         String explicitJdbc = environment.getProperty("DB_URL");
         if (explicitJdbc != null && explicitJdbc.startsWith("jdbc:")) {
             return;

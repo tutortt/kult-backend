@@ -14,6 +14,8 @@ RUN ./mvnw -B -DskipTests clean package
 FROM eclipse-temurin:25-jre-jammy
 WORKDIR /app
 
+ENV SPRING_PROFILES_ACTIVE=prod
+
 COPY --from=build /workspace/target/tienda-0.0.1-SNAPSHOT.war app.war
 
 EXPOSE 8080
