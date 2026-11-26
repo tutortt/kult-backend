@@ -1,0 +1,1 @@
+org.springframework.boot.EnvironmentPostProcessor=com.kult.tienda.config.RailwayMysqlUrlPostProcessor
